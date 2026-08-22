@@ -9,7 +9,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-__all__ = ["ExperimentConfig", "KEEConfig", "Settings", "WorldConfig", "settings"]
+__all__ = ["BM25Config", "ExperimentConfig", "KEEConfig", "Settings", "WorldConfig", "settings"]
 
 
 class WorldConfig(BaseModel):
@@ -51,6 +51,20 @@ class KEEConfig(BaseModel):
     recency_halflife: int = Field(default=40, ge=1, description="Timesteps to half recency.")
 
 
+class BM25Config(BaseModel):
+    """Okapi BM25 hyper-parameters for the lexical control arm.
+
+    The published defaults, left at the values the literature settled on. They
+    are here rather than inline because they change a number, and every knob
+    that changes a number has to be readable off the config block.
+    """
+
+    model_config = {"frozen": True}
+
+    k1: float = Field(default=1.2, ge=0.0, description="Term-frequency saturation.")
+    b: float = Field(default=0.75, ge=0.0, le=1.0, description="Length normalisation.")
+
+
 class ExperimentConfig(BaseModel):
     """One comparison run."""
 
@@ -61,6 +75,7 @@ class ExperimentConfig(BaseModel):
     embedding_dim: int = Field(default=256, ge=16)
     world: WorldConfig = Field(default_factory=WorldConfig)
     kee: KEEConfig = Field(default_factory=KEEConfig)
+    bm25: BM25Config = Field(default_factory=BM25Config)
 
 
 class Settings(BaseSettings):
