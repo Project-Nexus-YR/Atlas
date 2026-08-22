@@ -185,9 +185,12 @@ regression tests pin it.
 Stated because they bear on how far the number generalises.
 
 - **Activation is summed without degree normalisation.** A node with many edges
-  accumulates more energy simply for being well-connected. This is a known
-  property of the classical algorithm and was kept deliberately; normalising it
-  would change what is being measured.
+  accumulates more energy simply for being well-connected. That matches Collins &
+  Loftus (1975), where spread is not discounted by degree — but not ACT-R, where
+  associative strength carries a `−ln(fan)` term and source activation is split
+  `W/n` across the elements of the query. So this is one of two classical choices,
+  not the classical behaviour, and it is the choice that leaves hub nodes
+  advantaged. Changing it is a live option rather than a closed one.
 - **Utility is clamped to `[0,1]`,** which makes the four weights not
   scale-invariant: doubling all of them is not a no-op. Weight ablation is not a
   deliverable here.
