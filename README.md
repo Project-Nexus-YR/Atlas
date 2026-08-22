@@ -3,33 +3,57 @@
 Measures whether an evolving knowledge graph retrieves better context than vector
 similarity search, on a synthetic corpus where facts go stale over time.
 
-The answer, on the benchmark in this repo, is **mostly no**. That result is the
-point of the repository: the engine is instrumented so the ways it loses are
-legible, and the harness is built so neither arm can win by construction.
+The graph arm loses the headline by 14.5 points. The more useful finding is what
+that headline is made of: a BM25 control saturates two of the four families at
+100%, and a third is 0.0% for every arm, so three quarters of the benchmark
+distinguishes nothing. On the one family that does discriminate, the graph arm is
+the only arm that scores at all.
+
+That is the point of the repository: the engine is instrumented so the ways it
+loses are legible, and the harness is built so no arm can win by construction.
 
 ## Result
 
 ```
 $ atlas --seed 42
 
-Atlas 0.2.0  ·  KEE vs Vector-RAG  ·  seed 42  ·  186 tasks  ·  top_k 5
+Atlas 0.2.0  ·  KEE vs Vector-RAG vs BM25  ·  seed 42  ·  186 tasks  ·  top_k 5
 
-family              n       KEE   Vector-RAG    delta
------------------------------------------------------
-direct             50     56.0%       100.0%    -44.0
-distractor         50     78.0%       100.0%    -22.0
-compositional      50      0.0%         0.0%     +0.0
-drift              36     22.2%         5.6%    +16.7
------------------------------------------------------
-overall           186     40.3%        54.8%    -14.5
+family              n          KEE   Vector-RAG         BM25   vs best
+----------------------------------------------------------------------
+direct             50        56.0%       100.0%       100.0%     -44.0
+distractor         50        78.0%       100.0%       100.0%     -22.0
+compositional      50         0.0%         0.0%         0.0%      +0.0
+drift              36        22.2%         5.6%         0.0%     +16.7
+----------------------------------------------------------------------
+overall           186        40.3%        54.8%        53.8%     -14.5
 
 KEE         concepts 115  ·  revisions 68  ·  merges 0  ·  novel retrievals 149
-Vector-RAG  vectors 468  ·  dim 256  ·  novel retrievals 0
+Vector-RAG  concepts 468  ·  vectors 468  ·  dim 256  ·  novel retrievals 0
+BM25        concepts 468  ·  documents 468  ·  vocabulary 152  ·  novel retrievals 0
 ```
 
-The graph arm loses overall. It wins one family — `drift`, by 16.7 points, which
-is the family it was built for — and is beaten badly on the two families that
-plain lexical matching already solves.
+`vs best` is the graph arm's margin over the **strongest** control on that row,
+never over a nominated one, so adding a control can only make the reported margin
+worse. Read down the columns rather than across the bottom row:
+
+- `direct` and `distractor` are **saturated**. BM25 — term overlap and nothing
+  else, no embeddings, no graph — scores 100% on both. Whatever those families
+  measure, it is not retrieval quality above the lexical floor, and the vector
+  arm's perfect score there is not evidence that embeddings bought anything.
+- `compositional` is **0.0% for all three arms**. A family no arm scores on
+  separates no arms.
+- `drift` is the only family where the three arms come apart, and BM25's **0.0%**
+  is the informative cell: drift is not reachable by term overlap at all, so this
+  family asks for something the other two never did. Consolidation is the only
+  mechanism present that supplies any of it.
+
+That last row is 8 tasks against 2 against 0, out of 36 — a clear ordering on a
+small sample, not a confidence interval. And the headline is carried by two
+families whose ceiling a lexical baseline reaches, weighted by mixing ratios this
+repo chose. The graph arm's deficit on them is real — it loses to plain term
+matching on tasks plain term matching solves — but it is a deficit on the half of
+the benchmark that turned out not to be asking anything.
 
 Reproduce with `atlas --seed 42`, or `python -m atlas.cli --seed 42`. The run is
 deterministic: same seed, same table, byte for byte. `stdout` carries only the
@@ -37,17 +61,26 @@ table, so it can be diffed; all progress logging goes to `stderr`.
 
 ## What is being compared
 
-Both arms are handed the identical stream of `Experience` objects in the
+All three arms are handed the identical stream of `Experience` objects in the
 identical order, and are asked the identical questions through the same
 `MemorySystem` protocol. The only difference is what happens in between.
 
-**Vector-RAG** (baseline) embeds each experience once with a hashing encoder and
-retrieves by cosine similarity — SMART `lnc.ltc`, with query-side smoothed IDF
+**BM25** (lexical control) is Okapi BM25 over an inverted index: term frequency
+saturating at `k1`, length normalised by `b`, RSJ idf. No embeddings, no graph,
+and a `consolidate` that is a no-op. It is here to price the corpus — a family it
+scores 100% on is a family that needed nothing but term overlap. It returns only
+documents sharing at least one query term, so it can return fewer than `top_k`
+where the other two always fill the budget; under a grader that punishes
+forbidden facts as well as rewarding required ones, that is a trade rather than a
+handicap.
+
+**Vector-RAG** (dense control) embeds each experience once with a hashing encoder
+and retrieves by cosine similarity — SMART `lnc.ltc`, with query-side smoothed IDF
 over a frozen document matrix. Its `consolidate` is a real, documented no-op.
 That contrast *is* the experiment: a vector index never revisits what it stored.
 
-**KEE** (the arm under test) stores concepts in a graph and does two things the
-baseline does not:
+**KEE** (the arm under test) stores concepts in a graph and does two things no
+control does:
 
 - **Belief revision.** An experience that closely resembles a known concept
   without matching it is read as *news about that concept*, and the old concept
@@ -60,11 +93,11 @@ baseline does not:
 Retrieval is spreading activation: the query energises lexically-matching seed
 nodes and that energy flows along weighted edges, attenuating per hop.
 
-### Neither arm can see the answer
+### No arm can see the answer
 
 A memory arm never receives a `Fact`, only an `Experience`. `Fact.supersedes` —
-which says that one fact invalidates another — is therefore unreadable by both
-arms, and `Experience` carries no such field. A test pins that.
+which says that one fact invalidates another — is therefore unreadable by every
+arm, and `Experience` carries no such field. A test pins that.
 
 So when the KEE decides a claim is stale, it is deciding from two experiences
 that say almost, but not quite, the same thing about the same subject. That
@@ -73,7 +106,7 @@ vocabulary lands in the same overlap band as a real revision, and the engine
 discredits a good concept on the strength of noise. Those losses are real and
 they are in the table above.
 
-### Neither arm can rig the grade
+### No arm can rig the grade
 
 A task is resolved iff `required_fact_ids ⊆ retrieved` **and**
 `forbidden_fact_ids ∩ retrieved == ∅`. The two clauses pull against each other,
@@ -83,7 +116,7 @@ The grader reads only the task and the `RetrievalResult`. It has no parameter
 through which an agent-authored claim of success could arrive — the arm cannot
 grade itself, because it is never asked.
 
-## The families, and why two of them are 100%
+## The families, and what each one measures
 
 | family | what it asks | why it is here |
 |---|---|---|
@@ -92,15 +125,22 @@ grade itself, because it is never asked.
 | `compositional` | two facts about one subject, token-disjoint | needs an edge, not similarity |
 | `drift` | a fact whose replacement arrived later | tests whether stale beliefs die |
 
-`direct` and `distractor` are solved outright by the baseline. That is reported
-rather than hidden, because an overall number that concealed it would be
-flattering instead of informative: the headline is really carried by two
-families, and their weight in it is set by mixing ratios this repo chose.
+The lexical control is what turned the right-hand column of that table from an
+intention into a measurement. `direct` and `distractor` were *designed* as a floor
+and a precision test; what the control shows is that both are floors. Term overlap
+alone clears them, so `distractor` does not in fact ask for precision the lexical
+baseline lacks.
+
+That is reported rather than hidden, because an overall number concealing it would
+be flattering instead of informative. It also bounds what this benchmark can
+currently establish. With one saturated pair, one family at zero for everyone, and
+one family of 36 tasks doing all of the discriminating, the defensible claim is
+about `drift` — not about the overall row.
 
 ## The compositional result
 
-Both arms score **0.0%**, and for the KEE the reason is now measured rather than
-guessed at. Two independent causes:
+All three arms score **0.0%**, and for the KEE the reason is now measured rather
+than guessed at. Two independent causes:
 
 1. **Availability.** Forgetting removes one of the two required concepts in
    30 of 50 tasks before the question is asked. Winning `drift` costs
@@ -159,6 +199,9 @@ Stated because they bear on how far the number generalises.
   edge.
 - **`top_k` is a harness parameter** and is the sole source of difficulty in
   three of the four families.
+- **Three of the four families do not discriminate.** Two are saturated by the
+  lexical control and one is zero for every arm, so the overall row is a weighted
+  average over tasks that mostly separate nothing.
 - **There is no agent.** Removing the agent's ability to grade itself also
   removed the agent. Success here is set membership over fact ids: a proxy for
   grounded action, not action. No code is written and no patch is executed.
@@ -198,10 +241,11 @@ src/atlas/
 │   ├── consolidation.py    # offline pass: link, then forget
 │   ├── activation.py       # spreading activation
 │   ├── kee.py              # the arm under test
-│   └── vector_rag.py       # the baseline
+│   ├── vector_rag.py       # the dense control
+│   └── bm25.py             # the lexical control
 └── experiment/
     ├── runner.py           # the evaluation protocol: what each arm sees, and when
-    └── compare.py          # drives both arms, renders the table
+    └── compare.py          # drives every arm, renders the table
 ```
 
 ### The protocol
