@@ -29,7 +29,7 @@ dev = ["mypy>=1.14", "pytest>=8.3", "pytest-cov>=6.0", "ruff>=0.9"]
 atlas = "atlas.cli:main"
 
 [project.urls]
-Source = "https://github.com/Yasser-Ameur/atlas"
+Source = "https://github.com/Project-Nexus-YR/Atlas"
 
 [build-system]
 requires = ["hatchling"]
